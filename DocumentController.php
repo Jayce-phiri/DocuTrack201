@@ -1,8 +1,9 @@
 <?php
 
 namespace App\Http\Controllers;
-
-use Illuminate\Http\Request;
+use App\Services\DocumentService;
+use App\Models\Document;
+use App\Http\Requests\DocumentRequest;
 
 class DocumentController extends Controller
 {
@@ -18,36 +19,80 @@ class DocumentController extends Controller
         $documents = $this->documentService->getAllDocuments();
         return response()->json($documents);
     }
+ public function dashboard()
+{
+    $documents = $this->documentService->getAllDocuments();
+    return view('dashboard', compact('documents'));
+}
+
 
     public function show($id)
     {
         $document = $this->documentService->getDocumentById($id);
         return response()->json($document);
     }
+//for rendering the document in the dashboard
+    public function showDocument($id)
+{
+    $document = $this->documentService->getDocumentById($id);
 
-    public function store(Request $request)
-    {
-        $document = $this->documentService->createDocument($request->all());
-        return response()->json($document, 201);
+    if (!$document) {
+        abort(404, 'Document not found');
     }
 
-    public function update(Request $request, $id)
+    // Load employee relationship if it exists
+    $document->load('employee');
+
+    return view('documents.show', compact('document'));
+}
+
+
+public function store(DocumentRequest $request)
+{
+    // dd($request->validated()); // Debug inputs first
+
+    try {
+        $validatedData = $request->validated();
+        $file = $request->file('file');
+
+        $user = $request->user();
+
+        $validatedData['employee_nrc'] = $user->employee->nrc;
+
+        // Set current department (from employee relation)
+        $validatedData['current_department'] = $user->employee->department_code; 
+
+        $validatedData['status'] = 'submitted';
+
+        $document = $this->documentService->createDocument($validatedData, $file);
+
+        return redirect()->route('dashboard')
+            ->with('success', 'Document uploaded successfully!');
+    } catch (\Exception $e) {
+        return redirect()->back()
+            ->with('error', 'Upload failed: ' . $e->getMessage())
+            ->withInput();
+    }
+}
+
+
+    public function update(DocumentRequest $request, $id)
     {
         $document = $this->documentService->getDocumentById($id);
         if (!$document) {
             return response()->json(['message' => 'Document not found'], 404);
         }
-        $updatedDocument = $this->documentService->updateDocument($document, $request->all());
+
+        $file = $request->file('file');
+        $updatedDocument = $this->documentService->updateDocument($document, $request->validated(), $file);
+
         return response()->json($updatedDocument);
     }
 
-    public function destroy($id)
-    {
-        $document = $this->documentService->getDocumentById($id);
-        if (!$document) {
-            return response()->json(['message' => 'Document not found'], 404);
-        }
-        $this->documentService->deleteDocument($document);
-        return response()->json(['message' => 'Document deleted successfully']);
-    }
+  public function destroy(Document $doc)
+{
+    $this->documentService->deleteDocument($doc);
+
+    return redirect()->route('dashboard')->with('success', 'Document deleted successfully.');
+}
 }
